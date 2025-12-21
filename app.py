@@ -1859,7 +1859,7 @@ with st.container():
     with col_t2:
         key_input_text = st.text_input("Kunci (Key) - Max 16 Byte", value="ResearchKey12345", key="k_text")
     
-default_text = "Saya adalah seorang polisi yang suka korupsi dan menyalahgunakan kekuasaan"
+default_text = "Kami adalah seorang tampan dan pemberani penakluk para wanita"
 txt_input = st.text_area("Input Teks", value=default_text, height=100)
     
 if st.button("Proses Teks", use_container_width=True):

@@ -99,6 +99,30 @@ st.markdown("""
     .main .block-container {
         animation: fadeInUp 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
     }
+    
+    /* 1. MENGHAPUS PADDING BAWAH DARI CONTAINER UTAMA */
+    /* Target class 'block-container' yang terlihat di inspect element */
+    .block-container, div[data-testid="stMainBlockContainer"] {
+        padding-bottom: 0px !important;
+        padding-left: 3rem !important; /* Opsional: sesuaikan margin kiri */
+        padding-right: 3rem !important; /* Opsional: sesuaikan margin kanan */
+        max-width: 100vw !important; /* Agar lebar maksimal mengikuti layar */
+    }
+
+    /* 2. MENGHILANGKAN FOOTER BAWAAN STREAMLIT */
+    /* Ini penting agar tidak ada 'hantu' elemen di bawah */
+    footer, header {
+        visibility: hidden;
+        display: none !important;
+        height: 0px !important;
+    }
+    
+
+    /* 4. PASTIKAN FOOTER KAMU TIDAK PUNYA MARGIN LUAR */
+    .footer-container {
+        margin-bottom: 0px !important;
+        padding-bottom: 20px; /* Padding dalam footer saja */
+    }
 
     /* TYPOGRAPHY */
     h1, h2, h3, .tech-font {
@@ -1041,65 +1065,220 @@ with st.container():
 
 # RESULTS AREA
 if st.session_state.get('run_analysis'):
-    custom_sbox = generate_sbox_data(
-        st.session_state.current_matrix, st.session_state.const_c)
+    # 1. Generate Data & Metrics for Research S-Box
+    custom_sbox = generate_sbox_data(st.session_state.current_matrix, st.session_state.const_c)
     metrics = calculate_metrics(custom_sbox)
 
-    st.markdown("<div style='animation: fadeInUp 0.8s ease;'>",
-                unsafe_allow_html=True)
-    t1, t2, t3 = st.tabs(["DATA_TABLE", "VISUALIZATION", "HEX_DUMP"])
+    # 2. Generate Data & Metrics for AES Standard (Reference)
+    #    Kita hitung on-the-fly agar adil menggunakan math engine yang sama
+    aes_sbox_ref = generate_sbox_data(AES_MATRIX, 0x63)
+    aes_metrics = calculate_metrics(aes_sbox_ref)
 
+    st.markdown("<div style='animation: fadeInUp 0.8s ease;'>", unsafe_allow_html=True)
+    
+    # --- TABS LAYOUT ---
+    t1, t2, t3 = st.tabs(["BENCHMARK TABLE", "VISUALIZATION (SAC/DDT)", "S-BOX COMPARISON"])
+
+    # --- TAB 1: BENCHMARK TABLE (Styled like original) ---
     with t1:
         st.markdown("""
         <style>
             table { width: 100%; border-collapse: separate; border-spacing: 0 12px; }
-            th { text-align: left; color: #8899ac; border-bottom: 1px solid #333; padding: 15px; font-family: 'Rajdhani'; letter-spacing: 1px; }
+            th { text-align: left; color: #8899ac; border-bottom: 1px solid #333; padding: 15px; font-family: 'Rajdhani'; letter-spacing: 1px; text-transform: uppercase; }
             td { background: rgba(255,255,255,0.03); padding: 18px 15px; color: #eee; font-family: 'Inter'; border-top: 1px solid #222; border-bottom: 1px solid #222; transition: all 0.3s; }
             tr:hover td { background: rgba(255,255,255,0.06); transform: scale(1.01); }
-            td:first-child { border-top-left-radius: 10px; border-bottom-left-radius: 10px; border-left: 1px solid #222; }
+            td:first-child { border-top-left-radius: 10px; border-bottom-left-radius: 10px; border-left: 1px solid #222; font-weight: 600; color: #fff; }
             td:last-child { border-top-right-radius: 10px; border-bottom-right-radius: 10px; border-right: 1px solid #222; }
-            .pass { color: #00f2fe; font-weight: bold; }
-            .fail { color: #ff0055; font-weight: bold; }
-            .metric-val { font-family: 'JetBrains Mono', monospace; font-size: 1.1rem; }
+            .winner { color: #00f2fe; font-weight: bold; font-family: 'JetBrains Mono'; }
+            .loser { color: #888; font-family: 'JetBrains Mono'; }
+            .equal { color: #e0e0e0; font-family: 'JetBrains Mono'; }
+            .metric-val { font-family: 'JetBrains Mono', monospace; font-size: 1.0rem; }
         </style>
         """, unsafe_allow_html=True)
 
-        nl_status = "pass" if metrics['nl_min'] >= 112 else "fail"
-        du_status = "pass" if metrics['du_max'] <= 4 else "fail"
-        sac_status = "pass" if 0.49 < metrics['sac_avg'] < 0.51 else "fail"
+        # Helper untuk menentukan pemenang visual
+        def get_comp_html(val_research, val_aes, goal='max'):
+            # Format angka
+            v_res_str = f"{val_research:.4f}" if isinstance(val_research, float) else str(val_research)
+            v_aes_str = f"{val_aes:.4f}" if isinstance(val_aes, float) else str(val_aes)
+
+            # Logika Pemenang
+            is_winner = False
+            if goal == 'max':
+                if val_research > val_aes: is_winner = True
+            elif goal == 'min':
+                if val_research < val_aes: is_winner = True
+            elif goal == 'target_0.5':
+                if abs(val_research - 0.5) < abs(val_aes - 0.5): is_winner = True
+
+            # Return HTML column content
+            if val_research == val_aes:
+                return f'<td class="metric-val equal">{v_res_str}</td><td class="metric-val equal">{v_aes_str}</td><td><span class="hero-badge" style="color:#aaa; border-color:#444;">EQUAL</span></td>'
+            elif is_winner:
+                return f'<td class="metric-val winner">{v_res_str}</td><td class="metric-val loser">{v_aes_str}</td><td><span class="hero-badge" style="color:#00f2fe; border-color:#00f2fe;">RESEARCH (K44)</span></td>'
+            else:
+                return f'<td class="metric-val loser">{v_res_str}</td><td class="metric-val winner">{v_aes_str}</td><td><span class="hero-badge" style="color:#888; border-color:#444;">AES STANDARD</span></td>'
+
+        # Generate Table Rows
+        row_nl = get_comp_html(metrics['nl_min'], aes_metrics['nl_min'], 'max')
+        row_sac = get_comp_html(metrics['sac_avg'], aes_metrics['sac_avg'], 'target_0.5')
+        row_du = get_comp_html(metrics['du_max'], aes_metrics['du_max'], 'min')
+        row_fp = get_comp_html(metrics['fixed_points'], aes_metrics['fixed_points'], 'min')
 
         st.markdown(f"""
         <table>
-            <thead><tr><th>METRIC PARAMETER</th><th>MEASURED VALUE</th><th>REFERENCE (AES)</th><th>INTEGRITY CHECK</th></tr></thead>
+            <thead>
+                <tr>
+                    <th style="width:25%;">METRIC PARAMETER</th>
+                    <th style="width:25%;">RESEARCH RESULT</th>
+                    <th style="width:25%;">AES STANDARD</th>
+                    <th style="width:25%;">PERFORMANCE VERDICT</th>
+                </tr>
+            </thead>
             <tbody>
-            <tr><td>Nonlinearity (Min)</td><td class="metric-val">{metrics['nl_min']}</td><td>112</td><td class="{nl_status}">{'OPTIMAL' if nl_status == 'pass' else 'SUB-OPTIMAL'}</td></tr>
-            <tr><td>Differential Uniformity</td><td class="metric-val">{metrics['du_max']}</td><td>4</td><td class="{du_status}">{'SECURE' if du_status == 'pass' else 'VULNERABLE'}</td></tr>
-            <tr><td>Strict Avalanche Criterion (SAC)</td><td class="metric-val">{metrics['sac_avg']:.4f}</td><td>0.5005</td><td class="{sac_status}">{'PASSED' if sac_status == 'pass' else 'DEVIATION DETECTED'}</td></tr>
+                <tr><td>Nonlinearity (Min)</td>{row_nl}</tr>
+                <tr><td>Differential Uniformity</td>{row_du}</tr>
+                <tr><td>SAC (Average)</td>{row_sac}</tr>
+                <tr><td>Fixed Points</td>{row_fp}</tr>
             </tbody>
         </table>
         """, unsafe_allow_html=True)
+        
+        st.caption("ℹ️ Verdict determined by: Maximize NL, Minimize DU, Minimize Fixed Points, SAC closest to 0.5.")
 
+    # --- TAB 2: VISUALIZATION (Side by Side) ---
     with t2:
+        st.info("Visual comparison between Research S-Box and AES Standard. Brighter colors indicate higher values.")
+        
+        # Row 1: SAC Matrix
+        st.markdown("##### 1. Strict Avalanche Criterion (SAC) Matrix")
         c_viz1, c_viz2 = st.columns(2, gap="medium")
         with c_viz1:
-            st.markdown(
-                "<div style='background: rgba(255,255,255,0.02); padding: 20px; border-radius: 15px;'>", unsafe_allow_html=True)
-            st.pyplot(render_heatmap(
-                metrics['sac_matrix'], "SAC MATRIX (Avalanche)", "Output Bit", "Input Bit", "icefire"))
-            st.markdown("</div>", unsafe_allow_html=True)
+             st.markdown("<div style='background: rgba(255,255,255,0.02); padding: 15px; border-radius: 12px;'>", unsafe_allow_html=True)
+             st.pyplot(render_heatmap(metrics['sac_matrix'], "Research S-Box (SAC)", "Output Bit", "Input Bit", "icefire"))
+             st.markdown("</div>", unsafe_allow_html=True)
         with c_viz2:
-            st.markdown(
-                "<div style='background: rgba(255,255,255,0.02); padding: 20px; border-radius: 15px;'>", unsafe_allow_html=True)
-            st.pyplot(render_heatmap(
-                metrics['ddt'], "DIFFERENCE DISTRIBUTION TABLE", "Output Diff", "Input Diff", "mako"))
-            st.markdown("</div>", unsafe_allow_html=True)
+             st.markdown("<div style='background: rgba(255,255,255,0.02); padding: 15px; border-radius: 12px;'>", unsafe_allow_html=True)
+             st.pyplot(render_heatmap(aes_metrics['sac_matrix'], "AES Standard (SAC)", "Output Bit", "Input Bit", "icefire"))
+             st.markdown("</div>", unsafe_allow_html=True)
 
+        st.markdown("---")
+
+        # Row 2: DDT
+        st.markdown("##### 2. Difference Distribution Table (DDT)")
+        c_viz3, c_viz4 = st.columns(2, gap="medium")
+        with c_viz3:
+             st.markdown("<div style='background: rgba(255,255,255,0.02); padding: 15px; border-radius: 12px;'>", unsafe_allow_html=True)
+             st.pyplot(render_heatmap(metrics['ddt'], "Research S-Box (DDT)", "Output Diff", "Input Diff", "mako"))
+             st.markdown("</div>", unsafe_allow_html=True)
+        with c_viz4:
+             st.markdown("<div style='background: rgba(255,255,255,0.02); padding: 15px; border-radius: 12px;'>", unsafe_allow_html=True)
+             st.pyplot(render_heatmap(aes_metrics['ddt'], "AES Standard (DDT)", "Output Diff", "Input Diff", "mako"))
+             st.markdown("</div>", unsafe_allow_html=True)
+
+    # --- TAB 3: S-BOX COMPARISON (Updated with Decimal Option) ---
+    # --- TAB 3: S-BOX COMPARISON (Dengan Tombol Cyberpunk) ---
     with t3:
-        st.markdown("#### GENERATED S-BOX [16x16]")
+        # 1. INJEKSI CSS KHUSUS UNTUK RADIO BUTTON
+        # CSS ini mengubah radio button horizontal menjadi tampilan "Tab/Pill"
+        st.markdown("""
+        <style>
+            /* Container Radio Group */
+            div[role="radiogroup"][aria-orientation="horizontal"] {
+                background-color: #0f0f12;
+                padding: 4px;
+                border-radius: 8px;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                display: inline-flex;
+                gap: 8px;
+            }
+            
+            /* Sembunyikan bulatan radio asli */
+            div[role="radiogroup"][aria-orientation="horizontal"] label > div:first-child {
+                display: none !important;
+            }
+            
+            /* Style Label (Tombol) - Default State */
+            div[role="radiogroup"][aria-orientation="horizontal"] label {
+                background-color: transparent;
+                padding: 8px 16px;
+                border-radius: 6px;
+                border: 1px solid transparent;
+                transition: all 0.3s ease;
+                cursor: pointer;
+                color: #8899ac !important;
+                font-family: 'Rajdhani', sans-serif;
+                font-weight: 600;
+                letter-spacing: 1px;
+                font-size: 0.9rem;
+                margin: 0 !important;
+            }
+
+            /* Hover State */
+            div[role="radiogroup"][aria-orientation="horizontal"] label:hover {
+                border-color: rgba(0, 242, 254, 0.3);
+                color: #fff !important;
+            }
+
+            /* Active/Checked State (Menggunakan selector :has untuk mendeteksi pilihan) */
+            div[role="radiogroup"][aria-orientation="horizontal"] label:has(input:checked) {
+                background: rgba(0, 242, 254, 0.15);
+                border-color: #00f2fe;
+                color: #00f2fe !important;
+                box-shadow: 0 0 10px rgba(0, 242, 254, 0.2);
+            }
+            
+            /* Fallback untuk teks di dalam label */
+            div[role="radiogroup"] label p {
+                font-weight: 600;
+                margin-bottom: 0px;
+            }
+        </style>
+        """, unsafe_allow_html=True)
+
+        st.markdown("#### S-BOX LOOKUP TABLE COMPARISON")
+        
+        # 2. TOMBOL PILIHAN (Diposisikan di kanan atas tabel)
+        c_head, c_btn = st.columns([2, 1])
+        with c_head:
+             st.caption("Bandingkan nilai byte antara S-Box hasil riset dengan standar AES dalam format Hex atau Decimal.")
+        with c_btn:
+            # Radio button ini akan otomatis terkena style CSS di atas
+            num_format = st.radio(
+                "Format Angka", 
+                ["HEXADECIMAL", "DECIMAL"], 
+                horizontal=True,
+                label_visibility="collapsed",
+                key="tab3_format_toggle"
+            )
+            
         hex_labels = [f"{i:X}" for i in range(16)]
-        df_sbox = pd.DataFrame(np.array([f"{x:02X}" for x in custom_sbox]).reshape(
-            16, 16), columns=hex_labels, index=hex_labels)
-        st.dataframe(df_sbox, use_container_width=True, height=500)
+        
+        col_res, col_aes = st.columns(2, gap="large")
+        
+        # 3. LOGIKA FORMAT DATA
+        if num_format == "HEXADECIMAL":
+            # Format Hexadecimal (String, e.g., '99', 'F1')
+            data_res = np.array([f"{x:02X}" for x in custom_sbox]).reshape(16, 16)
+            data_aes = np.array([f"{x:02X}" for x in aes_sbox_ref]).reshape(16, 16)
+            fmt_label = "HEX (16)"
+        else:
+            # Format Decimal (Integer, e.g., 153, 241)
+            data_res = np.array(custom_sbox).reshape(16, 16)
+            data_aes = np.array(aes_sbox_ref).reshape(16, 16)
+            fmt_label = "DEC (10)"
+        
+        # 4. TAMPILAN TABEL
+        with col_res:
+            st.markdown(f"**K44 ({fmt_label})**")
+            df_sbox = pd.DataFrame(data_res, columns=hex_labels, index=hex_labels)
+            st.dataframe(df_sbox, use_container_width=True, height=450)
+            
+        with col_aes:
+            st.markdown(f"**AES Standard ({fmt_label})**")
+            df_aes = pd.DataFrame(data_aes, columns=hex_labels, index=hex_labels)
+            st.dataframe(df_aes, use_container_width=True, height=450)
+
     st.markdown("</div>", unsafe_allow_html=True)
 else:
     st.markdown("""

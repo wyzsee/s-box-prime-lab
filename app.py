@@ -945,7 +945,7 @@ def get_base64_image(image_path):
 team_members = [
     {"name": "Satriya Cahyo Wisely", "file": "Wisely.JPG", "nim": "2304130053", "desc": "Pria Dingin from Wonosobo"},
     {"name": "M. Zuhrifar Roihan", "file": "Roihan.JPG", "nim": "2304130055", "desc": "Pria Tamvan from Tegal"},
-    {"name": "M. Khayri Faadhil", "file": "Khayri.JPG", "nim": "2304130062", "desc": "Pria Pedofil from Boyolali"},
+    {"name": "M. Khayri Faadhil", "file": "Khayri.JPG", "nim": "2304130062", "desc": "Pria Nonchalant from Boyolali"},
     {"name": "Zhahiran Abyan Muhsin", "file": "Byan.JPG", "nim": "2304130065", "desc": "Pria Kalcer from Bandung"},    
 ]
 
@@ -1680,32 +1680,32 @@ with st.container():
     with col_t2:
         key_input_text = st.text_input("Kunci (Key) - Max 16 Byte", value="ResearchKey12345", key="k_text")
     
-    default_text = "Saya adalah seorang polisi yang suka korupsi dan menyalahgunakan kekuasaan"
-    txt_input = st.text_area("Input Teks", value=default_text, height=100)
+default_text = "Saya adalah seorang polisi yang suka korupsi dan menyalahgunakan kekuasaan"
+txt_input = st.text_area("Input Teks", value=default_text, height=100)
     
-    if st.button("Proses Teks", use_container_width=True):
-        if not txt_input:
-            st.warning("Mohon isi input teks.")
-        else:
-            try:
-                import base64
-                if op_text == "Enkripsi":
-                    data_in = txt_input.encode('utf-8')
-                    # Encrypt (Random IV generated inside)
-                    res = process_aes(sbox_text, "Enkripsi", key_input_text, data_in)
-                    out_b64 = base64.b64encode(res).decode('utf-8')
-                    st.success("Enkripsi Berhasil!")
-                    st.code(out_b64, language="text")
-                else:
-                    try:
-                        data_in = base64.b64decode(txt_input)
-                        res = process_aes(sbox_text, "Dekripsi", key_input_text, data_in)
-                        st.success("Dekripsi Berhasil!")
-                        st.code(res.decode('utf-8', errors='ignore'), language="text")
-                    except Exception as e:
-                        st.error(f"Gagal dekripsi: {e}")
-            except Exception as e:
-                st.error(f"Error: {e}")
+if st.button("Proses Teks", use_container_width=True):
+    if not txt_input:
+        st.warning("Mohon isi input teks.")
+    else:
+        try:
+            import base64
+            if op_text == "Enkripsi":
+                data_in = txt_input.encode('utf-8')
+                # Encrypt (Random IV generated inside)
+                res = process_aes(sbox_text, "Enkripsi", key_input_text, data_in)
+                out_b64 = base64.b64encode(res).decode('utf-8')
+                st.success("Enkripsi Berhasil!")
+                st.code(out_b64, language="text")
+            else:
+                try:
+                    data_in = base64.b64decode(txt_input)
+                    res = process_aes(sbox_text, "Dekripsi", key_input_text, data_in)
+                    st.success("Dekripsi Berhasil!")
+                    st.code(res.decode('utf-8', errors='ignore'), language="text")
+                except Exception as e:
+                    st.error(f"Gagal dekripsi: {e}")
+        except Exception as e:
+            st.error(f"Error: {e}")
 
 # === TAB 2: IMAGE + ANALYSIS ===
 with impl_tab2:

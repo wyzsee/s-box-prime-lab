@@ -1671,8 +1671,9 @@ with st.container():
     impl_tab1, impl_tab2 = st.tabs(
         ["📝 TEXT ENCRYPTION", "🖼️ IMAGE ENCRYPTION"])
 
-    # === TAB 1: TEXT ===with impl_tab1:
-    col_t1, col_t2 = st.columns(2)
+    # === TAB 1: TEXT ===
+    with impl_tab1:
+        col_t1, col_t2 = st.columns(2)
     with col_t1:
         op_text = st.radio("Operasi", ["Enkripsi", "Dekripsi"], key="op_text", horizontal=True)
         sbox_text = st.selectbox("Pilih S-Box", ["K44 (Research Paper)", "AES Standard"], key="sb_text")
@@ -1879,7 +1880,7 @@ Semarang, Indonesia
 </div>
 </div>
 <div class="footer-bottom">
-&copy; 2025 S-Box Research Lab | UNNES Informatics Engineering. Developed by Muhammad Zuhrifar Roihan.
+&copy; 2025 S-Box Research Lab | UNNES Informatics Engineering.
 </div>
 </div>
 </div>

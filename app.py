@@ -767,52 +767,153 @@ if 'const_c' not in st.session_state:
     st.session_state.const_c = 0x63
 
 
+# --- REPLACEMENT CODE FOR MATH ENGINE ---
+
 def fwht(a):
+    """Fast Walsh-Hadamard Transform (Vectorized for Speed)"""
+    a = np.array(a, dtype=int)
     h = 1
-    a = list(a)
-    while h < len(a):
-        for i in range(0, len(a), h * 2):
-            for j in range(i, i + h):
-                x = a[j]
-                y = a[j + h]
-                a[j] = x + y
-                a[j + h] = x - y
+    n = len(a)
+    while h < n:
+        temp = a.reshape((-1, 2, h))
+        x = temp[:, 0, :].copy()
+        y = temp[:, 1, :].copy()
+        temp[:, 0, :] = x + y
+        temp[:, 1, :] = x - y
+        a = temp.reshape(-1)
         h *= 2
     return a
 
-
 @st.cache_data
 def calculate_metrics(sbox):
+    sbox = np.array(sbox, dtype=int)
+    size = 256
     metrics = {}
+    
+    # --- 1. NONLINEARITY (NL) & 8. ALGEBRAIC DEGREE (AD) ---
     nl_values = []
-    for i in range(8):
-        mask = 1 << i
-        truth = [1 if (sbox[x] & mask) else -1 for x in range(256)]
-        w = fwht(truth)
-        nl_values.append(128 - (max(abs(x) for x in w) // 2))
-    metrics['nl_avg'] = np.mean(nl_values)
+    max_deg = 0
+    
+    # Check all 255 non-zero linear combinations for robustness
+    for b in range(1, 256):
+        # f_b(x) = parity(b & S[x])
+        val = sbox & b
+        val ^= val >> 4
+        val ^= val >> 2
+        val ^= val >> 1
+        val &= 1
+        
+        # NL Calculation
+        f_walsh = 1 - 2 * val
+        w = fwht(f_walsh)
+        nl = (size - np.max(np.abs(w))) // 2
+        nl_values.append(nl)
+        
+        # AD Calculation (Mobius Transform on 8 coordinate functions only)
+        if (b & (b-1) == 0): # Check if b is power of 2 (coordinate function)
+            anf = val.copy()
+            h = 1
+            while h < 256:
+                temp = anf.reshape((-1, 2, h))
+                temp[:, 1, :] ^= temp[:, 0, :]
+                anf = temp.reshape(-1)
+                h *= 2
+            # Max weight of index with non-zero coeff
+            idxs = np.nonzero(anf)[0]
+            if len(idxs) > 0:
+                wts = np.array([bin(x).count('1') for x in idxs])
+                deg = np.max(wts)
+                if deg > max_deg:
+                    max_deg = deg
+
     metrics['nl_min'] = np.min(nl_values)
+    metrics['nl_avg'] = np.mean(nl_values)
+    metrics['ad'] = max_deg
 
-    n = 256
-    ddt = np.zeros((n, n), dtype=int)
-    for dx in range(1, n):
-        for x in range(n):
-            dy = sbox[x] ^ sbox[x ^ dx]
-            ddt[dx][dy] += 1
-    metrics['du_max'] = int(np.max(ddt))
-    metrics['ddt'] = ddt
-
+    # --- 2. SAC ---
     sac_matrix = np.zeros((8, 8))
     for i in range(8):
         mask_in = 1 << i
         for j in range(8):
             mask_out = 1 << j
-            cnt = sum(1 for x in range(256) if (
-                (sbox[x] ^ sbox[x ^ mask_in]) & mask_out))
-            sac_matrix[i][j] = cnt / 256.0
+            diff = (sbox ^ sbox[np.arange(size) ^ mask_in]) & mask_out
+            cnt = np.count_nonzero(diff)
+            sac_matrix[i, j] = cnt / size
     metrics['sac_avg'] = np.mean(sac_matrix)
     metrics['sac_matrix'] = sac_matrix
-    metrics['fixed_points'] = sum(1 for x in range(256) if sbox[x] == x)
+
+    # --- 3. BIT INDEPENDENCE CRITERION (BIC) ---
+    bic_nl_vals = []
+    bic_sac_vals = []
+    
+    for i in range(8):
+        for j in range(i+1, 8):
+            combined_mask = (1 << i) | (1 << j)
+            # BIC-NL: NL of f_i ^ f_j
+            val = sbox & combined_mask
+            val ^= val >> 4; val ^= val >> 2; val ^= val >> 1; val &= 1
+            w = fwht(1 - 2 * val)
+            bic_nl_vals.append((size - np.max(np.abs(w))) // 2)
+            
+            # BIC-SAC: Avg SAC of f_i ^ f_j
+            pair_sac_sum = 0
+            for k in range(8):
+                diff_s = sbox ^ sbox[np.arange(size) ^ (1<<k)]
+                bits_diff = diff_s & combined_mask
+                p_diff = bits_diff
+                p_diff ^= p_diff >> 4; p_diff ^= p_diff >> 2; p_diff &= 1
+                pair_sac_sum += np.count_nonzero(p_diff) / size
+            bic_sac_vals.append(pair_sac_sum / 8)
+            
+    metrics['bic_nl'] = np.min(bic_nl_vals)
+    metrics['bic_sac'] = np.mean(bic_sac_vals)
+
+    # --- 4. LAP ---
+    # LAP = (128 - NL_min) / 256
+    metrics['lap'] = (128 - metrics['nl_min']) / 256.0
+
+    # --- 5. DIFFERENTIAL UNIFORMITY (DU) & DAP ---
+    ddt = np.zeros((size, size), dtype=int)
+    for dx in range(1, size):
+        dy = sbox ^ sbox[np.arange(size) ^ dx]
+        np.add.at(ddt[dx], dy, 1)
+    
+    metrics['du_max'] = int(np.max(ddt[1:]))
+    metrics['dap'] = metrics['du_max'] / size
+    metrics['ddt'] = ddt
+
+    # --- 6. CORRELATION IMMUNITY (CI) ---
+    min_ci_found = 8
+    wts = np.array([bin(x).count('1') for x in range(size)])
+    
+    for b in range(1, 256):
+        val = sbox & b
+        val ^= val >> 4; val ^= val >> 2; val ^= val >> 1; val &= 1
+        w = fwht(1 - 2 * val)
+        idxs = np.nonzero(w)[0]
+        if len(idxs) > 0:
+            current_min_wt = np.min(wts[idxs])
+            # CI is order t such that W(a)=0 for 1 <= wt(a) <= t
+            ci_b = max(0, current_min_wt - 1)
+            if ci_b < min_ci_found:
+                min_ci_found = ci_b
+    metrics['ci'] = min_ci_found
+
+    # --- 7. TRANSPARENCY ORDER (TO) ---
+    beta_term = 8 - 2 * wts
+    sum_abs_walsh = np.zeros(size)
+    for a in range(1, size):
+        d_a = sbox ^ sbox[np.arange(size) ^ a]
+        counts = np.bincount(d_a, minlength=size)
+        w_diff = fwht(counts) # Walsh of derivative histogram
+        sum_abs_walsh += np.abs(w_diff)
+        
+    coeff = 1.0 / (size*size - size)
+    metrics['to'] = np.max(beta_term - coeff * sum_abs_walsh)
+
+    # --- 8. FIXED POINTS ---
+    metrics['fixed_points'] = np.sum(sbox == np.arange(size))
+    
     return metrics
 
 
@@ -1121,8 +1222,14 @@ if st.session_state.get('run_analysis'):
 
         # Generate Table Rows
         row_nl = get_comp_html(metrics['nl_min'], aes_metrics['nl_min'], 'max')
-        row_sac = get_comp_html(metrics['sac_avg'], aes_metrics['sac_avg'], 'target_0.5')
         row_du = get_comp_html(metrics['du_max'], aes_metrics['du_max'], 'min')
+        row_sac = get_comp_html(metrics['sac_avg'], aes_metrics['sac_avg'], 'target_0.5')
+        row_bic_nl = get_comp_html(metrics['bic_nl'], aes_metrics['bic_nl'], 'max')
+        row_lap = get_comp_html(metrics['lap'], aes_metrics['lap'], 'min')
+        row_dap = get_comp_html(metrics['dap'], aes_metrics['dap'], 'min')
+        row_ad = get_comp_html(metrics['ad'], aes_metrics['ad'], 'max')
+        row_to = get_comp_html(metrics['to'], aes_metrics['to'], 'min') # Lower TO is better against DPA
+        row_ci = get_comp_html(metrics['ci'], aes_metrics['ci'], 'max')
         row_fp = get_comp_html(metrics['fixed_points'], aes_metrics['fixed_points'], 'min')
 
         st.markdown(f"""
@@ -1136,9 +1243,15 @@ if st.session_state.get('run_analysis'):
                 </tr>
             </thead>
             <tbody>
-                <tr><td>Nonlinearity (Min)</td>{row_nl}</tr>
-                <tr><td>Differential Uniformity</td>{row_du}</tr>
-                <tr><td>SAC (Average)</td>{row_sac}</tr>
+                <tr><td>Nonlinearity (NL)</td>{row_nl}</tr>
+                <tr><td>Differential Uniformity (DU)</td>{row_du}</tr>
+                <tr><td>Strict Avalanche Crit. (SAC)</td>{row_sac}</tr>
+                <tr><td>Bit Independence (BIC-NL)</td>{row_bic_nl}</tr>
+                <tr><td>Linear Approx. Prob. (LAP)</td>{row_lap}</tr>
+                <tr><td>Diff. Approx. Prob. (DAP)</td>{row_dap}</tr>
+                <tr><td>Algebraic Degree (AD)</td>{row_ad}</tr>
+                <tr><td>Transparency Order (TO)</td>{row_to}</tr>
+                <tr><td>Correlation Immunity (CI)</td>{row_ci}</tr>
                 <tr><td>Fixed Points</td>{row_fp}</tr>
             </tbody>
         </table>
